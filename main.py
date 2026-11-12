@@ -12,11 +12,15 @@ Foto cekme:        [S] tusu (veya 5 parmak 2 saniye sabit tutulunca)
 
 import time
 import os
+import urllib.request
 from collections import deque, Counter
 
 import cv2
 import numpy as np
 import mediapipe as mp
+from mediapipe.tasks.python import vision
+from mediapipe.tasks.python.core.base_options import BaseOptions
+from mediapipe.tasks.python.vision import HandLandmarksConnections
 
 
 # =============================================================
@@ -59,6 +63,13 @@ SMOOTHING_WINDOW = 7
 AUTO_CAPTURE_SECONDS = 2.0
 
 CAPTURE_DIR = "captures"
+
+# Yeni MediaPipe "Tasks" API bir model dosyasi ister. Yoksa otomatik indiririz.
+MODEL_PATH = "hand_landmarker.task"
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/1/hand_landmarker.task"
+)
 
 
 # =============================================================
@@ -254,12 +265,60 @@ def foto_kaydet(frame):
 
 
 # =============================================================
+# 5b) MODEL INDIRME VE LANDMARK CIZIMI (yeni Tasks API icin)
+# =============================================================
+
+def modeli_hazirla():
+    """El modeli yoksa (ilk calistirma) internetten indirir."""
+    if not os.path.exists(MODEL_PATH):
+        print("El modeli indiriliyor (ilk calistirma, ~8 MB)...")
+        # macOS'ta python.org surumlerinde sistem SSL sertifikalari cogu zaman
+        # kurulu olmaz; bu yuzden certifi'nin sertifika paketini kullaniriz.
+        try:
+            import ssl
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = None
+        with urllib.request.urlopen(MODEL_URL, context=ctx) as kaynak, \
+                open(MODEL_PATH, "wb") as hedef:
+            hedef.write(kaynak.read())
+        print("Model hazir.")
+    return MODEL_PATH
+
+
+def landmark_ciz(frame, landmark_px):
+    """
+    Yeni API hazir bir cizim fonksiyonu sunmadigi icin 21 eklemi ve
+    aralarindaki baglantilari elle cizeriz. Her filtre modunda net gorunsun
+    diye cizgiler beyaz, noktalar turuncu secildi.
+    """
+    # Once baglantilar (kemik cizgileri).
+    for baglanti in HandLandmarksConnections.HAND_CONNECTIONS:
+        bas = landmark_px[baglanti.start]
+        son = landmark_px[baglanti.end]
+        cv2.line(frame, (int(bas[0]), int(bas[1])),
+                 (int(son[0]), int(son[1])), (255, 255, 255), 2, cv2.LINE_AA)
+    # Sonra eklem noktalari.
+    for (x, y) in landmark_px:
+        cv2.circle(frame, (int(x), int(y)), 4, (0, 200, 255), -1, cv2.LINE_AA)
+
+
+# =============================================================
 # 6) ANA DONGU
 # =============================================================
 
 def main():
-    mp_hands = mp.solutions.hands
-    mp_draw = mp.solutions.drawing_utils
+    # Model dosyasini hazirla ve el takipcisini olustur (yeni Tasks API).
+    model = modeli_hazirla()
+    options = vision.HandLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=model),
+        running_mode=vision.RunningMode.VIDEO,  # webcam icin kare kare video modu
+        num_hands=1,
+        min_hand_detection_confidence=0.6,
+        min_tracking_confidence=0.5,
+    )
+    landmarker = vision.HandLandmarker.create_from_options(options)
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -275,13 +334,7 @@ def main():
     bildirim_metni = None
     bildirim_bitis = 0
 
-    with mp_hands.Hands(
-        model_complexity=0,
-        max_num_hands=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5,
-    ) as hands:
-
+    with landmarker:
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -291,18 +344,21 @@ def main():
             frame = cv2.flip(frame, 1)
             h, w = frame.shape[:2]
 
-            # MediaPipe RGB bekler; OpenCV ise BGR verir.
+            # MediaPipe RGB bekler; OpenCV ise BGR verir. Kareyi mp.Image'e sar.
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            sonuc = hands.process(rgb)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            # Video modu artan milisaniye zaman damgasi ister.
+            zaman_ms = int(time.time() * 1000)
+            sonuc = landmarker.detect_for_video(mp_image, zaman_ms)
 
             parmak_sayisi = 0
             parmak_durum = [False] * 5
             landmark_px = None
 
-            if sonuc.multi_hand_landmarks:
-                el = sonuc.multi_hand_landmarks[0]
+            if sonuc.hand_landmarks:
+                el = sonuc.hand_landmarks[0]
                 # Normalize (0-1) koordinatlari piksele cevir.
-                landmark_px = [(lm.x * w, lm.y * h) for lm in el.landmark]
+                landmark_px = [(lm.x * w, lm.y * h) for lm in el]
                 ham_sayi, parmak_durum = parmaklari_say(landmark_px)
                 gecmis.append(ham_sayi)
             else:
@@ -316,14 +372,8 @@ def main():
             cikti = filtre_uygula(frame, parmak_sayisi)
 
             # 2) Landmark cizimlerini filtrenin UZERINE yap ki her modda gorunur.
-            if sonuc.multi_hand_landmarks:
-                mp_draw.draw_landmarks(
-                    cikti,
-                    sonuc.multi_hand_landmarks[0],
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=3),
-                    mp_draw.DrawingSpec(color=(0, 200, 255), thickness=2),
-                )
+            if landmark_px is not None:
+                landmark_ciz(cikti, landmark_px)
 
             # 3) 5 parmak 2 saniye sabit kalirsa otomatik foto cek.
             simdi = time.time()

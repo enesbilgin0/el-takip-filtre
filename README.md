@@ -147,8 +147,14 @@ python main.py
 
 **Kontroller:** `Q` → çıkış · `S` → fotoğraf çek
 
-> ⚠️ **Not:** `mediapipe` Python **3.8 – 3.12** sürümleriyle en uyumlu çalışır.
-> Kameran başka bir uygulama tarafından kullanılıyorsa açılmayabilir.
+> ℹ️ **İlk çalıştırma:** El tespit modeli (`hand_landmarker.task`, ~8 MB)
+> otomatik indirilir; bu yüzden ilk açılışta internet gerekir. Sonraki
+> çalıştırmalarda yerelden okunur.
+
+> ⚠️ **Not:** Proje, MediaPipe'ın güncel **Tasks** API'siyle yazıldığı için
+> Python **3.13 dahil** modern sürümlerde çalışır. `cv2`, `mediapipe` ile
+> birlikte `opencv-contrib-python` olarak geldiğinden ayrıca kurmaya gerek
+> yoktur. Kameran başka bir uygulama tarafından kullanılıyorsa açılmayabilir.
 
 ---
 

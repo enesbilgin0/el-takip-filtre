@@ -1,3 +1,4 @@
-opencv-python
+# cv2, mediapipe tarafindan opencv-contrib-python olarak otomatik yuklenir;
+# bu yuzden opencv-python'u ayrica eklemiyoruz (iki cv2 paketi cakisir).
 mediapipe
 numpy
