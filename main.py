@@ -308,7 +308,7 @@ def landmark_ciz(frame, landmark_px):
 # 6) ANA DONGU
 # =============================================================
 
-def main():
+def main(kamera_index=0):
     # Model dosyasini hazirla ve el takipcisini olustur (yeni Tasks API).
     model = modeli_hazirla()
     options = vision.HandLandmarkerOptions(
@@ -320,9 +320,12 @@ def main():
     )
     landmarker = vision.HandLandmarker.create_from_options(options)
 
-    cap = cv2.VideoCapture(0)
+    # Secilen kamerayi ac. (OBS gibi sanal kameralar genelde index 0'i kapar;
+    # Mac'in dahili webcam'i cogunlukla index 1 olur. --kamera ile degistir.)
+    cap = cv2.VideoCapture(kamera_index)
     if not cap.isOpened():
-        print("Kamera acilamadi. Baska bir uygulama kullaniyor olabilir.")
+        print(f"Kamera {kamera_index} acilamadi. Baska bir indeks deneyin: "
+              f"python main.py --kamera 1")
         return
 
     # Titreme onleme icin son karelerin parmak sayilarini tutan kuyruk.
@@ -416,4 +419,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="El takibi + parmak sayma + filtreler")
+    parser.add_argument("--kamera", type=int, default=0,
+                        help="Kamera indeksi (varsayilan 0; OBS varsa dahili webcam genelde 1)")
+    args = parser.parse_args()
+    main(args.kamera)
